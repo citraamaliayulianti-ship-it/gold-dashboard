@@ -308,6 +308,16 @@ with tabD:
                "one panel per country. Sample data.")
 
     countries = t12.index.tolist()             # ordered from top buyer to top seller
+
+    # Countries without their own colour in design.py share the grey "rest of world"
+    # hue elsewhere. Here two of them can be compared, so each gets a fixed colour of
+    # its own (always the same colour for the same country).
+    OWN = [c for c in sorted(declared["country"].unique()) if c not in dz.HUES]
+    EXTRA = ["#0f8b8d", "#6b8e23", "#e07a1f", "#7b5ea7", "#c2185b", "#4e7d3a",
+             "#5c6bc0", "#8d6e63", "#00897b", "#9e9d24", "#ad1457"]
+
+    def compare_hue(c):
+        return dz.HUES[c] if c in dz.HUES else EXTRA[OWN.index(c) % len(EXTRA)]
     months = sorted(pd.Timestamp(m) for m in declared["date"].unique())
     c1, c2, c3 = st.columns([3, 3, 2], gap="medium")
     with c1:
@@ -326,16 +336,25 @@ with tabD:
     else:
         if view == "Cumulative":
             f = go.Figure()
+            ends = []
             for c in chosen:
                 d = sel[sel["country"] == c]
                 running = d["net_purchases_t"].cumsum()
                 f.add_trace(go.Scatter(x=d["date"], y=running, name=c, mode="lines",
-                    line=dict(color=dz.hue(c), width=2.4),
+                    line=dict(color=compare_hue(c), width=2.4),
                     hovertemplate=f"{c}: %{{y:+,.0f}} t<extra></extra>"))
-                endlabel(f, d["date"].iloc[-1], running.iloc[-1],
-                         f"<b>{c}</b> {running.iloc[-1]:+,.0f} t", dz.hue(c))
-            f.update_yaxes(title="tonnes since start of period")
-            f.update_layout(margin=dict(r=120))   # room for the end labels
+                ends.append((running.iloc[-1], c, d["date"].iloc[-1]))
+            # End labels, nudged apart so that lines ending close together stay readable.
+            ends.sort()
+            values = [v for v, _, _ in ends]
+            gap = 0.07 * (max(values + [0]) - min(values + [0]) or 1)
+            placed = []
+            for v, c, x in ends:
+                y = v if not placed or v - placed[-1] >= gap else placed[-1] + gap
+                placed.append(y)
+                endlabel(f, x, y, f"<b>{c}</b> {v:+,.0f} t", compare_hue(c))
+            f.update_yaxes(title="tonnes since start of period", side="left")
+            f.update_layout(margin=dict(l=70, r=150))   # room for the end labels
             height = 420
         else:
             f = make_subplots(rows=len(chosen), cols=1, shared_xaxes=True,
@@ -343,7 +362,7 @@ with tabD:
             for row, c in enumerate(chosen, start=1):
                 d = sel[sel["country"] == c]
                 f.add_trace(go.Bar(x=d["date"], y=d["net_purchases_t"], name=c,
-                    marker_color=dz.hue(c),
+                    marker_color=compare_hue(c),
                     hovertemplate=f"{c}: %{{y:+,.1f}} t<extra></extra>"), row=row, col=1)
             f.update_yaxes(title_text="t / month", title_font=dict(size=11))
             height = 150 + 150 * len(chosen)
